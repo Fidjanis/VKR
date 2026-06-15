@@ -1,0 +1,87 @@
+Запуск на Windows, если команда "python" ничего не делает или печатает одно слово Python
+================================================================================
+
+1) Попробуйте вместо "python" лаунчер (рекомендуется, если ставили Python с python.org):
+
+   py -3 --version
+   py -3 -m pip install -r requirements.txt
+
+2) Если "py" не найден — установите Python 3.11+ с сайта https://www.python.org/downloads/
+   В установщике включите галочку "Add python.exe to PATH".
+
+3) Отключите подмену из Microsoft Store (частая причина «пустого» python):
+   Параметры Windows → Приложения → Дополнительные параметры → Псевдонимы выполнения приложений
+   → выключите переключатели для python.exe и python3.exe.
+
+4) Запуск обучения без ручного ввода команд — двойной щелчок по run_example.bat
+   (он внутри вызывает py -3).
+
+5) Если train_ppo ругается на отсутствие CSV — сначала выполните make_sample_csv.py
+   (файл должен появиться в папке ppo_crypto_agent\data\sample_ohlcv.csv).
+
+6) Проверка обученной модели (из папки ppo_crypto_agent):
+
+   py -3 scripts\eval_ppo.py --csv data\sample_ohlcv.csv
+
+   По умолчанию берётся runs\ppo_crypto\best\best_model.zip, если нет — ppo_final.zip.
+   Свой файл: py -3 scripts\eval_ppo.py --csv data\sample_ohlcv.csv --model runs\ppo_crypto\ppo_final.zip
+
+   Если в отчёте оборот 0 и баланс не меняется — политика в deterministic-режиме «в нуле».
+   Сравните: py -3 scripts\eval_ppo.py --csv data\sample_ohlcv.csv --stochastic
+
+7) TensorBoard (графики обучения). НЕ используйте py -3 -m tensorboard — в Windows часто ошибка.
+
+   Вариант А — двойной щелчок: run_tensorboard.bat
+
+   Вариант Б — вручную:
+   py -3 -m tensorboard.main --logdir runs\ppo_crypto\tb
+
+   Вариант В — если установлен exe в PATH:
+   tensorboard --logdir runs\ppo_crypto\tb
+
+8) Long + short (позиция от −1 до +1): при обучении добавьте флаг --short
+   и для eval тот же флаг. Сохраняйте модель в отдельную папку, например:
+   py -3 scripts\train_ppo.py --csv data\sample_ohlcv.csv --short --save runs\ppo_ls
+
+9) Фьючерсы / USDT‑M перпетуалы (для диплома и кода)
+
+   «В духе перпетуала» = упрощённая постановка: лонг/шорт по w, комиссия от оборота,
+   опционально funding. Это НЕ полная копия биржи (нет ликвидации, стакана,
+   mark/index, задержек, частичного исполнения).
+
+   Реальные исторические ставки funding:
+     py -3 scripts\merge_binance_funding.py --input data\klines.csv --output data\klines_f.csv --symbol BTCUSDT --funding-scale 0.125
+   Входной CSV должен содержать open_time (мс UTC). Часовые свечи Binance:
+   ставка в API за ~8 ч — при записи на каждую 1h свечу часто берут scale 1/8
+   (--funding-scale 0.125), иначе списание завысится. Подгоняйте под свой таймфрейм.
+
+   Обучение с колонкой funding_rate + short:
+     py -3 scripts\train_ppo.py --csv data\klines_f.csv --short --save runs\ppo_perp
+
+10) Про «реальный результат» на живом рынке
+
+   Даже с реальными OHLCV и funding бэктест остаётся моделью. Историческая доходность
+   не гарантирует будущую; проскальзывание, очередь заявок, режим рынка и ошибки
+   API меняют исход. В дипломе формулируют: «оценка стратегии на исторических данных
+   в симуляторе с перечисленными допущениями».
+
+11) Уменьшить переторговку и приблизить к аккуратному исполнению
+
+   Переобучение с ограничением смены позиции за шаг и более жёстким штрафом за оборот:
+     py -3 scripts\train_ppo.py --csv data\sample_with_funding.csv --short --save runs\ppo_v2 --max-delta-w 0.12 --turnover-penalty 0.035 --timesteps 300000
+
+   eval с теми же флагами:
+     py -3 scripts\eval_ppo.py --csv data\sample_with_funding.csv --short --max-delta-w 0.12 --model runs\ppo_v2\best\best_model.zip
+
+12) Сигнал по рынку без ордеров (публичный REST Binance, без load_markets/ccxt)
+
+     py -3 scripts\live_signal.py --model runs\ppo_v2\best\best_model.zip --symbol BTC/USDT:USDT --short --max-delta-w 0.12
+
+   Если таймаут к fapi.binance.com: VPN/другая сеть, или другой URL:
+     --base-url https://testnet.binancefuture.com
+   Без интернета (демо для защиты):
+     py -3 scripts\live_signal.py --model runs\ppo_v2\best\best_model.zip --from-csv data\sample_with_funding.csv --short --max-delta-w 0.12
+
+   Скрипт только печатает w. Для диплома: скрин + описание, что на testnet можно
+   проверить вручную; автоторговля = отдельный рискованный проект с API-ключами.
+
